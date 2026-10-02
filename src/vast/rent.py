@@ -31,30 +31,62 @@ def wait_for_ssh(instance_id: int, timeout: int) -> tuple[str, int]:
     raise TimeoutError("instance did not become ready in time")
 
 
-def wait_for_api(port: int, token: str, timeout: int) -> None:
-    """Wait until the vLLM server answers through the tunnel (model download takes a while)."""
+def ssh_run(host: str, ssh_port: int, command: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["ssh", "-p", str(ssh_port), "-o", "ConnectTimeout=10", f"root@{host}", command],
+        capture_output=True, text=True,
+    )
+
+
+def wait_for_api(port: int, token: str, host: str, ssh_port: int, timeout: int) -> None:
+    """Wait until the vLLM server answers through the tunnel (model download takes a while).
+
+    Fails early with the log tail when the vLLM process on the instance died.
+    """
     req = urllib.request.Request(
         f"http://localhost:{port}/v1/models", headers={"Authorization": f"Bearer {token}"}
     )
     deadline = time.time() + timeout
+    misses = 0
     while time.time() < deadline:
         try:
             with urllib.request.urlopen(req, timeout=5) as r:
                 json.load(r)
                 return
         except Exception:
-            time.sleep(15)
+            pass
+        # [v] keeps pgrep from matching the ssh command line itself
+        alive = ssh_run(host, ssh_port, "pgrep -f '[v]llm serve'").returncode == 0
+        misses = 0 if alive else misses + 1
+        if misses >= 3:  # tolerate the short window before onstart has launched vllm
+            log = ssh_run(host, ssh_port, "tail -n 30 /var/log/vllm.log").stdout
+            raise RuntimeError(f"vLLM process died. Last log lines:\n{log}")
+        time.sleep(15)
     raise TimeoutError("vLLM server did not come up in time")
+
+
+def serve_command(
+    model: str, name: str, max_len: int, max_seqs: int, tool_call_parser: str, token: str, kv_cache_dtype: str = "",
+) -> str:
+    kv = f"--kv-cache-dtype {kv_cache_dtype} " if kv_cache_dtype else ""
+    return (
+        f"vllm serve {shlex.quote(model)} --served-model-name {shlex.quote(name)} "
+        f"--max-model-len {max_len} --max-num-seqs {max_seqs} --gpu-memory-utilization 0.92 {kv}"
+        f"--enable-auto-tool-choice --tool-call-parser {tool_call_parser} "
+        f"--enable-prefix-caching --host 127.0.0.1 --port 8000 --api-key {token}"
+    )
 
 
 def rent(
     offer_id: Annotated[int, typer.Argument(help="Offer id from `show`")],
     model: Annotated[str, typer.Option(help="Hugging Face model id")] = "Qwen/Qwen3.8-27B-FP8",
     name: Annotated[str, typer.Option(help="Model name exposed by the API")] = "coder",
-    max_len: Annotated[int, typer.Option(help="Max context length")] = 32768,
+    max_len: Annotated[int, typer.Option(help="Max context length")] = 131072,
+    max_seqs: Annotated[int, typer.Option(help="Max concurrent sequences")] = 64,
     disk: Annotated[int, typer.Option(help="Disk size in GB")] = 80,
     port: Annotated[int, typer.Option(help="Local port for the tunnel")] = 8000,
     tool_call_parser: Annotated[str, typer.Option(help="vLLM tool call parser")] = "qwen3_coder",
+    kv_cache_dtype: Annotated[str, typer.Option(help="KV cache dtype, e.g. fp8 for ~2x context")] = "",
     image: str = "vllm/vllm-openai:latest",
     yes: Annotated[bool, typer.Option("--yes", help="Skip confirmation")] = False,
 ):
@@ -63,12 +95,7 @@ def rent(
         typer.confirm(f"Rent offer {offer_id} and start billing?", abort=True)
 
     token = secrets.token_urlsafe(24)
-    serve = (
-        f"vllm serve {shlex.quote(model)} --served-model-name {shlex.quote(name)} "
-        f"--max-model-len {max_len} --gpu-memory-utilization 0.92 "
-        f"--enable-auto-tool-choice --tool-call-parser {tool_call_parser} "
-        f"--enable-prefix-caching --host 127.0.0.1 --port 8000 --api-key {token}"
-    )
+    serve = serve_command(model, name, max_len, max_seqs, tool_call_parser, token, kv_cache_dtype)
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if "HF_TOKEN" in os.environ else None
     result = vast.create_instance(
         offer_id,
@@ -100,7 +127,7 @@ def rent(
 
     try:
         print("Waiting for the model to download and the server to start ...")
-        wait_for_api(port, token, timeout=1800)
+        wait_for_api(port, token, host, ssh_port, timeout=1800)
         print(f"""
 Ready. Instance {instance_id}
   base URL: http://localhost:{port}/v1

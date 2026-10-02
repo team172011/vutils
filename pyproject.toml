@@ -10,6 +10,7 @@ dependencies = ["typer", "vastai"]
 [project.scripts]
 show = "vast.list:main"
 rent = "vast.rent:main"
+restart = "vast.restart:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
