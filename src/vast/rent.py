@@ -122,7 +122,7 @@ def rent(
         ])
     except BaseException:
         print(f"Aborted. Instance {instance_id} is still running (and billing): "
-              f"vastai destroy instance {instance_id}")
+              f"destroy {instance_id}")
         raise
 
     try:
@@ -134,7 +134,7 @@ Ready. Instance {instance_id}
   api key:  {token}
   model:    {name}
 
-Stop billing with: vastai destroy instance {instance_id}
+Stop billing with: destroy {instance_id}
 Ctrl+C closes the tunnel (the instance keeps running).""")
         tunnel.wait()
     except KeyboardInterrupt:
@@ -142,7 +142,7 @@ Ctrl+C closes the tunnel (the instance keeps running).""")
     finally:
         tunnel.terminate()
         print(f"Tunnel closed. Instance {instance_id} is still running: "
-              f"vastai destroy instance {instance_id}")
+              f"destroy {instance_id}")
 
 
 def main():

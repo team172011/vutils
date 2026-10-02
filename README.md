@@ -2,7 +2,7 @@
 
 Find cheap GPU offers on [vast.ai](https://vast.ai) and rent one as a self-hosted, OpenAI-compatible LLM server (vLLM) for coding agents like [opencode](https://github.com/anomalyco/opencode) or [Hermes Agent](https://github.com/NousResearch/hermes-agent).
 
-> **Warning:** Rented GPUs keep running and are billed by the hour until you destroy them, also after `rent` or the terminal was closed (Ctrl+C only closes the ssh tunnel). Always destroy the instance when you are done: `vastai destroy instance <instance id>`, and check the [vast.ai console](https://cloud.vast.ai/instances/) for instances you forgot.
+> **Warning:** Rented GPUs keep running and are billed by the hour until you destroy them, also after `rent` or the terminal was closed (Ctrl+C only closes the ssh tunnel). Always destroy the instance when you are done: `destroy <instance id>`, and check the [vast.ai console](https://cloud.vast.ai/instances/) for instances you forgot.
 
 ## Installation
 ```
@@ -15,7 +15,7 @@ Create an API key on vast.ai and set it for the CLI and the SDK:
 vastai set api-key <KEY>
 export VAST_API_KEY=<KEY>
 ```
-Your public SSH key must be added to your vast.ai account, the tunnel to the instance uses it.
+Your public SSH key must be added to your vast.ai [account](https://cloud.vast.ai/manage-keys/), the tunnel to the instance uses it.
 
 ## Usage
 
@@ -99,10 +99,14 @@ restart <instance id> --max-len 65536
 ```
 Options: `--model`, `--name`, `--max-len`, `--max-seqs`, `--tool-call-parser`, `--kv-cache-dtype` (same defaults as `rent`). Pass the same values as in `rent` for everything you do not want to change. Running requests and the open `rent` tunnel are interrupted only for the duration of the restart.
 
-**Billing:** Ctrl+C only closes the tunnel, the instance keeps running and costing money. Destroy it when you are done:
+### destroy
+Destroys the instance, which stops the billing. The disk and the downloaded model are deleted with it:
 ```
-vastai destroy instance <instance id>
+destroy <instance id>
 ```
+Asks for confirmation, `--yes` skips it.
+
+**Billing:** Ctrl+C in `rent` only closes the tunnel, the instance keeps running and costing money. Run `destroy` when you are done.
 
 If tool calls do not work, check the parser for your model. The server log is on the instance in `/var/log/vllm.log`.
 
