@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vutils"
+version = "0.0.1"
+dependencies = ["typer", "vastai"]
+
+[project.scripts]
+show = "vast.list:main"
+rent = "vast.rent:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
