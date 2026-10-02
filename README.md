@@ -1,6 +1,8 @@
 # Vast.ai utlis
 
-Find cheap GPU offers on [vast.ai](https://vast.ai) and rent one as a self-hosted, OpenAI-compatible LLM server (vLLM) for coding agents like opencode or Hermes.
+Find cheap GPU offers on [vast.ai](https://vast.ai) and rent one as a self-hosted, OpenAI-compatible LLM server (vLLM) for coding agents like [opencode](https://github.com/anomalyco/opencode) or [Hermes Agent](https://github.com/NousResearch/hermes-agent).
+
+> **Warning:** Rented GPUs keep running and are billed by the hour until you destroy them, also after `rent` or the terminal was closed (Ctrl+C only closes the ssh tunnel). Always destroy the instance when you are done: `vastai destroy instance <instance id>`, and check the [vast.ai console](https://cloud.vast.ai/instances/) for instances you forgot.
 
 ## Installation
 ```
@@ -54,7 +56,7 @@ model:    coder
 ```
 Use them in your agent as an OpenAI-compatible provider. 
 
-Example for opencode (`opencode.json`):
+Example for [opencode](https://github.com/anomalyco/opencode) (`opencode.json`):
 ```json
 {
   "provider": {
