@@ -99,15 +99,16 @@ def wait_for_api(port: int, token: str, host: str, ssh_port: int, timeout: int) 
 
 def serve_command(
     model: str, name: str, max_len: int, max_seqs: int, tool_call_parser: str, token: str, kv_cache_dtype: str = "",
-    tensor_parallel: int = 0,
+    tensor_parallel: int = 0, reasoning_parser: str = "",
 ) -> str:
     # 0 = one shard per GPU of the instance, counted on the instance itself when the command runs
     tp = tensor_parallel or "$(nvidia-smi -L | wc -l)"
+    rp = f"--reasoning-parser {reasoning_parser} " if reasoning_parser else ""
     kv = f"--kv-cache-dtype {kv_cache_dtype} " if kv_cache_dtype else ""
     return (
         f"vllm serve {shlex.quote(model)} --served-model-name {shlex.quote(name)} "
         f"--max-model-len {max_len} --max-num-seqs {max_seqs} --gpu-memory-utilization 0.92 --tensor-parallel-size {tp} {kv}"
-        f"--enable-auto-tool-choice --tool-call-parser {tool_call_parser} "
+        f"{rp}--enable-auto-tool-choice --tool-call-parser {tool_call_parser} "
         f"--enable-prefix-caching --host 127.0.0.1 --port 8000 --api-key {token}"
     )
 
@@ -198,6 +199,7 @@ def rent(
     tool_call_parser: Annotated[str, typer.Option(help="vLLM tool call parser")] = "qwen3_coder",
     kv_cache_dtype: Annotated[str, typer.Option(help="KV cache dtype, e.g. fp8 for ~2x context")] = "",
     tensor_parallel: Annotated[int, typer.Option(help="Tensor parallel size, 0 = number of GPUs")] = 0,
+    reasoning_parser: Annotated[str, typer.Option(help="vLLM reasoning parser, separates the thinking from the answer, empty = off")] = "qwen3",
     image: str = "vllm/vllm-openai:latest",
     yes: Annotated[bool, typer.Option("--yes", help="Skip confirmation")] = False,
 ):
@@ -215,7 +217,7 @@ def rent(
 
     token = secrets.token_urlsafe(24)
     log(f"Renting offer {offer_id} ...")
-    serve = serve_command(model, name, max_len, max_seqs, tool_call_parser, token, kv_cache_dtype, tensor_parallel)
+    serve = serve_command(model, name, max_len, max_seqs, tool_call_parser, token, kv_cache_dtype, tensor_parallel, reasoning_parser)
     env = {"HF_TOKEN": os.environ["HF_TOKEN"]} if "HF_TOKEN" in os.environ else None
     result = vast.create_instance(
         offer_id,

@@ -44,6 +44,7 @@ rent <offer id> --model Qwen/Qwen3.8-27B-FP8 --max-len 131072
 | `--tool-call-parser` | `qwen3_coder` | vLLM tool call parser, depends on the model |
 | `--max-seqs` | `64` | max concurrent requests |
 | `--tensor-parallel-size` | `0` | GPUs the model is split over, `0` = number of GPUs of the instance (counted on the instance) |
+| `--reasoning-parser` | `qwen3` | vLLM reasoning parser, puts the thinking into a separate field instead of the answer text, empty = off |
 | `--kv-cache-dtype` | | e.g. `fp8` to roughly double the context that fits, not tested with this model |
 | `--image` | `vllm/vllm-openai:latest` | docker image |
 | `--yes` | | skip the confirmation |
@@ -101,7 +102,7 @@ Restarts the vLLM server on a running instance with new settings, e.g. a larger 
 ```
 restart <instance id> --max-len 65536
 ```
-Options: `--model`, `--name`, `--max-len`, `--max-seqs`, `--tool-call-parser`, `--tensor-parallel-size`, `--kv-cache-dtype` (same defaults as `rent`). Pass the same values as in `rent` for everything you do not want to change. Running requests and the open `rent` tunnel are interrupted only for the duration of the restart.
+Options: `--model`, `--name`, `--max-len`, `--max-seqs`, `--tool-call-parser`, `--tensor-parallel-size`, `--reasoning-parser`, `--kv-cache-dtype` (same defaults as `rent`). Pass the same values as in `rent` for everything you do not want to change. Running requests and the open `rent` tunnel are interrupted only for the duration of the restart.
 
 ### destroy
 Destroys the instance, which stops the billing. The disk and the downloaded model are deleted with it:
