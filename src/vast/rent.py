@@ -6,22 +6,18 @@ import shlex
 import subprocess
 import time
 import urllib.request
+from pathlib import Path
 from typing import Annotated, Optional
 from urllib.parse import urlparse
 
 import typer
 from vastai import VastAI
 
+from vast.common import log
 from vast.list import find_offers, format_offer
+from vast.sandbox import Agent, agent_lines, check_agent, stop_agent, try_start_agent
 
 vast = VastAI()  # uses VAST_API_KEY env var
-T0 = time.time()
-
-
-def log(msg: str) -> None:
-    """Print a progress line with the time since the start."""
-    m, sec = divmod(int(time.time() - T0), 60)
-    print(f"[{m:02d}:{sec:02d}] {msg}", flush=True)
 
 
 def wait_for_ssh(instance_id: int, timeout: int) -> tuple[str, int]:
@@ -136,20 +132,22 @@ def api_reachable(port: int, token: str) -> bool:
         return False
 
 
-def print_ready(instance_id: int, port: int, token: str, name: str, host: str, ssh_port: int, already: bool = False) -> None:
+def print_ready(instance_id: int, port: int, token: str, name: str, host: str, ssh_port: int,
+                agent: Optional[Agent] = None, already: bool = False) -> None:
     state = "already running" if already else "ready"
+    agent_block = f"\n{agent_lines(agent)}" if agent else ""
     print(f"""
 Ready. Instance {instance_id} {state}
   -> base URL: http://localhost:{port}/v1
   -> api key:  {token}
   -> model:    {name}
   -> ssh:      ssh -p {ssh_port} root@{host}
-  -> log:      ssh -p {ssh_port} root@{host} tail -f /var/log/vllm.log
+  -> log:      ssh -p {ssh_port} root@{host} tail -f /var/log/vllm.log{agent_block}
 
 Stop billing with: destroy {instance_id}""")
 
 
-def hold_tunnel(tunnel: subprocess.Popen, instance_id: int) -> None:
+def hold_tunnel(tunnel: subprocess.Popen, instance_id: int, agent: Optional[Agent] = None) -> None:
     print("Ctrl+C closes the tunnel (the instance keeps running).")
     try:
         tunnel.wait()
@@ -157,11 +155,16 @@ def hold_tunnel(tunnel: subprocess.Popen, instance_id: int) -> None:
         pass
     finally:
         tunnel.terminate()
-        print(f"Tunnel closed. Instance {instance_id} is still running: "
-              f"destroy {instance_id}")
+        if agent:
+            stop_agent(agent)
+            print(f"Tunnel closed, sandbox {agent.container} removed. Instance {instance_id} is still "
+                  f"running: destroy {instance_id}")
+        else:
+            print(f"Tunnel closed. Instance {instance_id} is still running: "
+                  f"destroy {instance_id}")
 
 
-def show_running(port: int) -> bool:
+def show_running(port: int, spec: Optional[Agent], workspace: Path, yes: bool) -> bool:
     """Print the running instances rented by this tool. Returns True and keeps the tunnel open
     when the user does not want another one."""
     running = [i for i in vast.show_instances() if i.get("label") == "vllm" and i.get("actual_status") == "running"]
@@ -173,18 +176,25 @@ def show_running(port: int) -> bool:
         procs = ssh_run(host, ssh_port, "pgrep -af '[v]llm serve'").stdout
         token = re.search(r"--api-key (\S+)", procs)
         name = re.search(r"--served-model-name (\S+)", procs)
+        max_len = re.search(r"--max-model-len (\S+)", procs)
         token = token.group(1) if token else "unknown (vLLM is not running on the instance)"
         name = name.group(1) if name else "unknown"
+        max_len = int(max_len.group(1)) if max_len else 131072
         print_ready(inst["id"], port, token, name, host, ssh_port, already=True)
-        infos.append((inst["id"], host, ssh_port, token))
+        infos.append((inst["id"], host, ssh_port, token, name, max_len))
     if typer.confirm("\nCreate another one?", default=False):
         return False
-    instance_id, host, ssh_port, token = infos[0]
+    instance_id, host, ssh_port, token, name, max_len = infos[0]
+    sandbox = try_start_agent(spec, f"http://host.docker.internal:{port}/v1", token, name, max_len, workspace, yes)
+    if sandbox:
+        print(f"\nSandbox ready:\n{agent_lines(sandbox)}")
     if api_reachable(port, token):
         print(f"A tunnel to instance {instance_id} is already open on port {port}.")
+        if sandbox:
+            print(f"The sandbox keeps running, remove it with: docker rm -f {sandbox.container}")
         return True
     log(f"Opening ssh tunnel to instance {instance_id} ...")
-    hold_tunnel(open_tunnel(host, ssh_port, port), instance_id)
+    hold_tunnel(open_tunnel(host, ssh_port, port), instance_id, sandbox)
     return True
 
 
@@ -201,10 +211,14 @@ def rent(
     tensor_parallel: Annotated[int, typer.Option(help="Tensor parallel size, 0 = number of GPUs")] = 0,
     reasoning_parser: Annotated[str, typer.Option(help="vLLM reasoning parser, separates the thinking from the answer, empty = off")] = "qwen3",
     image: str = "vllm/vllm-openai:latest",
+    agent: Annotated[Optional[str], typer.Option(help="Start a docker sandbox on this machine with the agent, "
+                                                      "configured for this model (opencode)")] = None,
+    workspace: Annotated[Path, typer.Option(help="Directory shared with the agent sandbox, kept when the sandbox is removed")] = Path.home() / "vast-workspace",
     yes: Annotated[bool, typer.Option("--yes", help="Skip confirmation")] = False,
 ):
     """Rent an offer, start a vLLM OpenAI-compatible server and forward its port via ssh."""
-    if show_running(port):
+    spec = check_agent(agent)
+    if show_running(port, spec, workspace, yes):
         return
     if offer_id is None:
         offers = find_offers(limit=1)
@@ -241,16 +255,20 @@ def rent(
               f"destroy {instance_id}")
         raise
 
+    sandbox = None
     try:
         log("Waiting for the model download and the vLLM start (shows the last vLLM log line when it changes) ...")
         wait_for_api(port, token, host, ssh_port, timeout=1800)
-        print_ready(instance_id, port, token, name, host, ssh_port)
+        sandbox = try_start_agent(spec, f"http://host.docker.internal:{port}/v1", token, name, max_len, workspace, yes)
+        print_ready(instance_id, port, token, name, host, ssh_port, sandbox)
     except BaseException:
         tunnel.terminate()
+        if sandbox:
+            stop_agent(sandbox)
         print(f"Aborted. Instance {instance_id} is still running (and billing): "
               f"destroy {instance_id}")
         raise
-    hold_tunnel(tunnel, instance_id)
+    hold_tunnel(tunnel, instance_id, sandbox)
 
 
 def main():
