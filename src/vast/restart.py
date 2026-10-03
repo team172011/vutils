@@ -16,6 +16,7 @@ def restart(
     max_seqs: Annotated[int, typer.Option(help="Max concurrent sequences")] = 64,
     tool_call_parser: Annotated[str, typer.Option(help="vLLM tool call parser")] = "qwen3_coder",
     kv_cache_dtype: Annotated[str, typer.Option(help="KV cache dtype, e.g. fp8 for ~2x context")] = "",
+    tensor_parallel: Annotated[int, typer.Option(help="Tensor parallel size, 0 = number of GPUs")] = 0,
 ):
     """Restart the vLLM server on a running instance with new settings (keeps instance, weights and api key)."""
     host, ssh_port = wait_for_ssh(instance_id, timeout=60)
@@ -34,7 +35,7 @@ def restart(
     else:
         raise RuntimeError("old vLLM process did not stop")
 
-    serve = serve_command(model, name, max_len, max_seqs, tool_call_parser, token, kv_cache_dtype)
+    serve = serve_command(model, name, max_len, max_seqs, tool_call_parser, token, kv_cache_dtype, tensor_parallel)
     ssh_run(host, ssh_port, f"setsid nohup {serve} > /var/log/vllm.log 2>&1 < /dev/null &")
     print(f"vLLM restarting on instance {instance_id} (max-len {max_len}, max-seqs {max_seqs}) ...")
 

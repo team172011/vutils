@@ -29,6 +29,7 @@ Output: offer id, GPU, VRAM per GPU, price per hour. Edit the query in `src/vast
 ### rent
 Rents the offer, starts a vLLM server with the model, waits until it is ready and forwards the port to `localhost` via an SSH tunnel:
 ```
+rent                 # cheapest offer of `show`
 rent <offer id>
 rent <offer id> --model Qwen/Qwen3.8-27B-FP8 --max-len 131072
 ```
@@ -42,9 +43,12 @@ rent <offer id> --model Qwen/Qwen3.8-27B-FP8 --max-len 131072
 | `--port` | `8000` | local port of the tunnel |
 | `--tool-call-parser` | `qwen3_coder` | vLLM tool call parser, depends on the model |
 | `--max-seqs` | `64` | max concurrent requests |
+| `--tensor-parallel-size` | `0` | GPUs the model is split over, `0` = number of GPUs of the instance (counted on the instance) |
 | `--kv-cache-dtype` | | e.g. `fp8` to roughly double the context that fits, not tested with this model |
 | `--image` | `vllm/vllm-openai:latest` | docker image |
 | `--yes` | | skip the confirmation |
+
+If an instance rented with this tool is already running, `rent` prints its connection details (marked `already running`) and asks `Create another one? [y/N]`. With `N` it opens the ssh tunnel to the existing instance (unless one is already open) and keeps it until Ctrl+C, nothing new is rented.
 
 For gated models set `HF_TOKEN` before running `rent`, it is passed to the instance.
 
@@ -97,7 +101,7 @@ Restarts the vLLM server on a running instance with new settings, e.g. a larger 
 ```
 restart <instance id> --max-len 65536
 ```
-Options: `--model`, `--name`, `--max-len`, `--max-seqs`, `--tool-call-parser`, `--kv-cache-dtype` (same defaults as `rent`). Pass the same values as in `rent` for everything you do not want to change. Running requests and the open `rent` tunnel are interrupted only for the duration of the restart.
+Options: `--model`, `--name`, `--max-len`, `--max-seqs`, `--tool-call-parser`, `--tensor-parallel-size`, `--kv-cache-dtype` (same defaults as `rent`). Pass the same values as in `rent` for everything you do not want to change. Running requests and the open `rent` tunnel are interrupted only for the duration of the restart.
 
 ### destroy
 Destroys the instance, which stops the billing. The disk and the downloaded model are deleted with it:
