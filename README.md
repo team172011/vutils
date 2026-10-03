@@ -4,6 +4,19 @@ Find cheap GPU offers on [vast.ai](https://vast.ai) and rent one as a self-hoste
 
 > **Warning:** Rented GPUs keep running and are billed by the hour until you destroy them, also after `rent` or the terminal was closed (Ctrl+C only closes the ssh tunnel). Always destroy the instance when you are done: `destroy <instance id>`, and check the [vast.ai console](https://cloud.vast.ai/instances/) for instances you forgot.
 
+## Highlights
+
+- **`rent`: your own LLM server with one command.** Rents the cheapest suitable GPU on vast.ai, downloads the model (default `Qwen/Qwen3.8-27B-FP8`), starts an OpenAI-compatible vLLM server and forwards its port to `localhost` through an ssh tunnel. When it is ready you get the base URL and api key for any agent.
+  ```
+  rent
+  ```
+- **`rent --agent opencode`: ready to code in a sandbox.** Additionally starts a docker sandbox with [opencode](https://github.com/anomalyco/opencode) on your machine, already configured for the rented model. Open the web UI or attach a terminal, nothing else to set up.
+  ```
+  rent --agent opencode
+  ```
+
+Details: [rent](#rent), [rent --agent opencode](#rent---agent-opencode). Remember to [destroy](#destroy) the instance when you are done.
+
 ## Installation
 ```
 pipx install .
